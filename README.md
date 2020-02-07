@@ -102,3 +102,11 @@ $ kubectl port-forward $GITEA_POD 9000
 
 - http://localhost:9000/gitea
 - http://localhost:9000/jenkins
+
+## Gitea から Cloud Source Repositories への mirroring
+
+リポジトリの設定の Git Hooks で `post-receive` に以下を追加。($変数は自分の環境で置き換え)
+
+```
+git push --mirror https://source.developers.google.com/p/$PROJECT_ID/r/$REPO_NAME
+```
