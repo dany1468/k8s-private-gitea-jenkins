@@ -1,0 +1,168 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: ci
+  labels:
+    app: ci
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: ci
+  template:
+    metadata:
+      labels:
+        app: ci
+    spec:
+      securityContext:
+        runAsUser: 0
+      serviceAccountName: jenkins
+      # Initial rights settings when creating disk can be incorrect for the git user in the gitea container: Use init container to set the rights
+      initContainers:
+        - name: init-disk
+          image: busybox:latest
+          command:
+          - /bin/chown
+          - 1000:1000
+          - /data
+          volumeMounts:
+          - name: gitea-data
+            mountPath: "/data"
+        - name: "copy-default-config"
+          image: "jenkins/jenkins:lts"
+          imagePullPolicy: "Always"
+          command: [ "sh", "/var/jenkins_config/apply_config.sh" ]
+          volumeMounts:
+            - mountPath: /var/jenkins_home
+              name: jenkins-data
+              subPath: jenkins_home
+            - mountPath: /var/jenkins_config
+              name: jenkins-config
+            - mountPath: /var/jenkins_plugins
+              name: jenkins-data
+              subPath: jenkins_plugins
+            - mountPath: /usr/share/jenkins/ref/secrets/
+              name: jenkins-data
+              subPath: jenkins_secrets
+      containers:
+        - name: nginx
+          image: nginx
+          ports:
+          - containerPort: 9000
+          volumeMounts:
+          - mountPath: /etc/nginx/conf.d # /etc/nginxにvolumesのnginx-confをmountする
+            readOnly: true
+            name: nginx-conf
+          - mountPath: /var/log/nginx
+            name: nginx-log
+        - name: gitea
+          image: gcr.io/$PROJECT_ID/gitea-with-cloud-sdk:1.10.3
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: ROOT_URL
+              value: http://localhost/gitea
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: 3000
+          #   # This pod takes a very long time to start up. Be cautious when
+          #   # lowering this value to avoid Pod death during startup.
+          #   initialDelaySeconds: 200
+          #   timeoutSeconds: 1
+          #   periodSeconds: 10
+          #   successThreshold: 1
+          #   failureThreshold: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: 3000
+          #   initialDelaySeconds: 30
+          #   timeoutSeconds: 1
+          #   periodSeconds: 10
+          #   successThreshold: 1
+          #   failureThreshold: 3
+          volumeMounts:
+            - name: gitea-data
+              mountPath: /data
+              subPath: gitea
+            - name: ci-sa
+              mountPath: /data/key.json
+              subPath: key.json
+              readOnly: true
+        - name: jenkins
+          image: gcr.io/$PROJECT_ID/jenkins-with-docker
+          imagePullPolicy: "Always"
+          args: [ "--argumentsRealm.passwd.$(ADMIN_USER)=$(ADMIN_PASSWORD)",  "--argumentsRealm.roles.$(ADMIN_USER)=admin"]
+          env:
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins
+                  key: jenkins-admin-password
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins
+                  key: jenkins-admin-user
+            - name: JENKINS_OPTS
+              value: --prefix=/jenkins
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: "/jenkins/login"
+              port: http
+            initialDelaySeconds: 90
+            timeoutSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: "/jenkins/login"
+              port: http
+            initialDelaySeconds: 60
+          volumeMounts:
+            - mountPath: /var/jenkins_config
+              name: jenkins-config
+              readOnly: true
+            - mountPath: /var/jenkins_home
+              name: jenkins-data
+              readOnly: false
+              subPath: jenkins_home
+            - mountPath: /usr/share/jenkins/ref/plugins/
+              name: jenkins-data
+              readOnly: false
+              subPath: jenkins_plugins
+            - mountPath: /usr/share/jenkins/ref/secrets/
+              name: jenkins-data
+              readOnly: false
+              subPath: jenkins_secrets
+      volumes:
+      - name: nginx-conf
+        configMap: 
+          name: nginx-conf
+          items:
+            - key: default.conf
+              path: default.conf
+      - name: nginx-log
+        emptyDir: {}
+      - name: gitea-data
+        persistentVolumeClaim:
+          claimName: gitea-pvc
+      - name: ci-sa
+        secret:
+          secretName: ci-sa 
+          items:
+            - key: ci-sa.json
+              path: key.json
+      - name: jenkins-config
+        configMap:
+          name: jenkins
+      - name: jenkins-data
+        persistentVolumeClaim:
+          claimName: jenkins-pvc
+

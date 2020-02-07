@@ -1,0 +1,18 @@
+pipeline {
+    agent { docker 'mcr.microsoft.com/dotnet/core/sdk:3.1' }
+    environment {
+        HOME = '/tmp'
+    } 
+    stages {
+        stage('setup') {
+            steps {
+                sh 'dotnet build Sample.Tests/'
+            }
+        }
+        stage('build') {
+            steps {
+                sh 'dotnet test Sample.Tests/'
+            }
+        }
+    }
+}
