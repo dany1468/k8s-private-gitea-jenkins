@@ -1,9 +1,9 @@
 FROM docker:17.12.0-ce as static-docker-source
 
-FROM gitea/gitea:1.10.3
+FROM gitea/gitea:1.11.1
 
 # install cloud-sdk
-ARG CLOUD_SDK_VERSION=279.0.0
+ARG CLOUD_SDK_VERSION=283.0.0
 ENV CLOUD_SDK_VERSION=$CLOUD_SDK_VERSION
 ENV CLOUDSDK_PYTHON=python3
 
